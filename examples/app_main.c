@@ -38,7 +38,6 @@ static void app_main(void *argument)
 {
     int32_t status;
     osTimerId_t timer_id;
-
     printf(" Azure IoT Demo\n");
 
     status = socket_startup();

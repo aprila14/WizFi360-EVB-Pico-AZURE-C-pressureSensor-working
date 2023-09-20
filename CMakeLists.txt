@@ -74,6 +74,13 @@ if(NOT DEFINED PORT_DIR)
     message(STATUS "PORT_DIR = ${PORT_DIR}")
 endif()
 
+if(NOT DEFINED DHT_DIR)
+# DHT directory path
+    set(DHT_DIR ${CMAKE_SOURCE_DIR}/dht)
+    message(STATUS "DHT_DIR = ${DHT_DIR}")
+endif()
+
+
 # Configure azure-iot-sdk-c
 add_definitions(-DUSE_MQTT)
 add_definitions(-DHSM_TYPE_SYMM_KEY)
@@ -99,6 +106,7 @@ add_subdirectory(examples)
 add_subdirectory(${CMAKE_SOURCE_DIR}/libraries)
 add_subdirectory(${MBEDTLS_DIR})
 add_subdirectory(${PORT_DIR})
+add_subdirectory(${DHT_DIR})
 
 # Set compile options
 add_compile_options(

@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-
-#include "pico/stdlib.h"
-
+#include "dht.h"
+#include "hardware/adc.h"
 #include "iothub.h"
 #include "iothub_device_client_ll.h"
 #include "iothub_client_options.h"
@@ -31,6 +30,11 @@ and removing calls to _DoWork will yield the same results. */
 //#define SAMPLE_AMQP_OVER_WEBSOCKETS
 //#define SAMPLE_HTTP
 
+#define ANALOG_PIN 26
+
+
+
+
 #ifdef SAMPLE_MQTT
 #include "iothubtransportmqtt.h"
 #endif // SAMPLE_MQTT
@@ -55,7 +59,7 @@ and removing calls to _DoWork will yield the same results. */
 //static const char* connectionString = "[device connection string]";
 static const char *connectionString = pico_az_connectionString;
 
-#define MESSAGE_COUNT 3
+#define MESSAGE_COUNT 3000 //defines how many messages will be sent
 static bool g_continueRunning = true;
 static size_t g_message_count_send_confirmations = 0;
 static size_t g_message_recv_count = 0;
@@ -84,16 +88,38 @@ static void connection_status_callback(IOTHUB_CLIENT_CONNECTION_STATUS result, I
     }
 }
 
+//// DHT
+
+// change this to match your setup
+//static const dht_model_t DHT_MODEL = DHT11;
+//static const uint DATA_PIN = 27;
+
+/*static float celsius_to_fahrenheit(float temperature) {
+    return temperature * (9.0f / 5) + 32;
+}
+*/
+/// --DHT
+
+
+
+
+
+
 void iothub_ll_telemetry_sample(void)
 {
     IOTHUB_CLIENT_TRANSPORT_PROVIDER protocol;
-    size_t messages_count = 0;
+    size_t messages_count = 0; //was 10 before
     IOTHUB_MESSAGE_HANDLE message_handle;
     size_t messages_sent = 0;
 
-    float telemetry_temperature;
-    float telemetry_humidity;
-    const char *telemetry_scale = "Celsius";
+    //float telemetry_temperature;
+    //float telemetry_humidity;
+    float voltage;
+    float pressure;
+    uint16_t analogValue;
+    adc_init();
+    adc_select_input(0); // Use channel 0 for GPIO 26
+    //const char *telemetry_scale = "Celsius";
     char telemetry_msg_buffer[80];
 
     // Select the Protocol to use with the connection
@@ -146,21 +172,79 @@ void iothub_ll_telemetry_sample(void)
         // you are URL Encoding inputs yourself.
         // ONLY valid for use with MQTT
         bool urlEncodeOn = true;
-        (void)IoTHubDeviceClient_LL_SetOption(device_ll_handle, OPTION_AUTO_URL_ENCODE_DECODE, &urlEncodeOn);
+        OPTION_KEEP_ALIVE = "1000000";
+
+        (void)IoTHubDeviceClient_LL_SetOption(device_ll_handle, OPTION_KEEP_ALIVE, &urlEncodeOn);
+        //(void)IoTHubDeviceClient_LL_SetOption(device_ll_handle, OPTION_AUTO_URL_ENCODE_DECODE, &urlEncodeOn);
 #endif
         // Setting connection status callback to get indication of connection to iothub
         (void)IoTHubDeviceClient_LL_SetConnectionStatusCallback(device_ll_handle, connection_status_callback, NULL);
 
+        //sleep_ms(5000);
+
+// DHT //////////////////////
+
+    //stdio_init_all();
+    //adc_init();
+    //adc_set_temp_sensor_enabled(false);
+    //adc_select_input(ANALOG_PIN);
+    //dht_t dht;
+    //dht_init(&dht, DHT_MODEL, pio0, DATA_PIN, true /* pull_up */);
+
+
+////////////////
+
+// ADC 
+
         do
+        
         {
             if (messages_sent < MESSAGE_COUNT)
             {
-                // Construct the iothub message
-                telemetry_temperature = 20.0f + ((float)rand() / RAND_MAX) * 15.0f;
-                telemetry_humidity = 60.0f + ((float)rand() / RAND_MAX) * 20.0f;
+                char telemetry_msg_buffer[80];
+                adc_select_input(0); // Use channel 0 for GPIO 26
+                analogValue = adc_read();  // Read the raw 12-bit ADC value
+                printf("Analog Value: %d\n", analogValue);
+                
+                voltage = analogValue * (4.5f / (1 << 12));  // Convert to voltage (assuming Vref = 4.5V; from datasheet TIZLA60)
+                pressure =  voltage * 1.33 - 0.7; //(6Bar/4.5V -0.7V)
+
+                printf("Voltage: %.2fV\n", voltage);
+                printf("pressure: %.2fbar\n", pressure);
+                //sleep_ms(1000);
+
+                 // Construct the iothub message
+                //telemetry_temperature = 20.0f;
+                //telemetry_humidity = 60.0f;
+
+                //// DHT
+/*
+                dht_start_measurement(&dht);
+        
+                float humidity;
+                float temperature_c;
+                dht_result_t result = dht_finish_measurement_blocking(&dht, &humidity, &temperature_c);
+                if (result == DHT_RESULT_OK) {
+                    telemetry_temperature = (temperature_c);
+                    telemetry_humidity = humidity;  
+                } else if (result == DHT_RESULT_TIMEOUT) {
+                puts("DHT sensor not responding. Please check your wiring.");
+                } else {
+                assert(result == DHT_RESULT_BAD_CHECKSUM);
+                puts("Bad checksum");
+                }
+        
 
                 sprintf(telemetry_msg_buffer, "{\"temperature\":%.3f,\"humidity\":%.3f,\"scale\":\"%s\"}",
-                        telemetry_temperature, telemetry_humidity, telemetry_scale);
+                       telemetry_temperature, telemetry_humidity, telemetry_scale);
+
+*/
+                //char SensorID[] = "00008DC6D7442"; //MAC address of the WifFI360-EVB-Pico
+                //sprintf(telemetry_msg_buffer, "{\"SensorID\":%s,\"pressure\":%.3f}",SensorID, pressure);
+                //float SensorIDfloat = 1.0;
+                //sprintf(telemetry_msg_buffer, "{\"SensorID\":%.3f,\"pressure\":%.3f}",pressure, pressure);
+                sprintf(telemetry_msg_buffer, "{\"pressure\":%.3f}", pressure);
+
                 message_handle = IoTHubMessage_CreateFromString(telemetry_msg_buffer);
 
                 // Set Message property
@@ -172,7 +256,8 @@ void iothub_ll_telemetry_sample(void)
                 // Add custom properties to message
                 //(void)IoTHubMessage_SetProperty(message_handle, "property_key", "property_value");
                 // dont use blank, special char. need encoding
-                (void)IoTHubMessage_SetProperty(message_handle, "display message", "Hello, WizFi360-EVB-Pico!");
+                (void)IoTHubMessage_SetProperty(message_handle, "FirmwareID", "00008DC6D7442");
+               
 
                 //(void)printf("Sending message %d to IoTHub\r\n", (int)(messages_sent + 1));
                 //IoTHubDeviceClient_LL_SendEventAsync(device_ll_handle, message_handle, send_confirm_callback, NULL);
@@ -184,16 +269,23 @@ void iothub_ll_telemetry_sample(void)
                 IoTHubMessage_Destroy(message_handle);
 
                 messages_sent++;
+
+
+ 
             }
             else if (g_message_count_send_confirmations >= MESSAGE_COUNT)
             {
                 // After all messages are all received stop running
-                g_continueRunning = false;
+                g_continueRunning = false;            
+
             }
 
             IoTHubDeviceClient_LL_DoWork(device_ll_handle);
+            ThreadAPI_Sleep(10);
+            printf("After ThreadAPI_Sleep\n");
+            printf("%d\n", g_continueRunning);
 
-            sleep_ms(500); // wait for
+            sleep_ms(10); // wait for
 
         } while (g_continueRunning);
 

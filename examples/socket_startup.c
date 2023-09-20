@@ -23,8 +23,8 @@
 #include "Driver_WiFi.h"
 
 /* Wi-Fi configuration */
-#define SSID "ssid"
-#define PASSWORD "password"
+#define SSID "4G UFI-4205"
+#define PASSWORD "1234567890"
 #define SECURITY_TYPE ARM_WIFI_SECURITY_WPA2
 
 extern ARM_DRIVER_WIFI Driver_WiFi1;

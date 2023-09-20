@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
-
+#include "dht.h"
 #include "pico/stdlib.h"
-
+#include "hardware/adc.h"
 #include "iothub.h"
 #include "iothub_device_client_ll.h"
 #include "iothub_client_options.h"
@@ -53,12 +53,26 @@ and removing calls to _DoWork will yield the same results. */
 
 /* Paste in the your iothub connection string  */
 //static const char* connectionString = "[device connection string]";
-static const char *connectionString = pico_az_connectionString;
+//static const char *connectionString = pico_az_connectionString;
 
-#define MESSAGE_COUNT 3
+
+
+static const char *connectionString = pico_az_x509connectionString;
+static const char *x509certificate = pico_az_x509certificate;
+static const char *x509privatekey = pico_az_x509privatekey;
+
+#define MESSAGE_COUNT 1
+#define MESSAGE_COUNT_RECEIVED 30000
 static bool g_continueRunning = true;
 static size_t g_message_count_send_confirmations = 0;
 static size_t g_message_recv_count = 0;
+static bool received_message_send_message = false;
+size_t messages_sent = 0;
+
+size_t retryTimeoutLimitInSeconds = 5;
+IOTHUB_CLIENT_RESULT IoTHubModuleClient_LL_SetRetryPolicy(iotHubClientHandle, IOTHUB_CLIENT_RETRY_INTERVAL, retryTimeoutLimitInSeconds);
+
+
 
 static void send_confirm_callback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void *userContextCallback)
 {
@@ -113,6 +127,11 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receive_msg_callback(IOTHUB_MESSAGE_HAND
         }
         else
         {
+            //printf("\r\nSend Sensor Data:\r\n");
+            received_message_send_message = true;
+            messages_sent = 0;
+            printf("Message send: %zu\n", messages_sent);
+            printf("received_message_send_message: %d\n", received_message_send_message);
             (void)printf("Received Binary message\r\nMessage ID: %s\r\n Correlation ID: %s\r\n Data: <<<%.*s>>> & Size=%d\r\n", messageId, correlationId, (int)buff_len, buff_msg, (int)buff_len);
         }
     }
@@ -126,6 +145,7 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receive_msg_callback(IOTHUB_MESSAGE_HAND
         else
         {
             (void)printf("Received String Message\r\nMessage ID: %s\r\n Correlation ID: %s\r\n Data: <<<%s>>>\r\n", messageId, correlationId, string_msg);
+            
         }
     }
     const char *property_value = "property_value";
@@ -134,22 +154,32 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT receive_msg_callback(IOTHUB_MESSAGE_HAND
     {
         printf("\r\nMessage Properties:\r\n");
         printf("\tKey: %s Value: %s\r\n", property_value, property_key);
+
+
+
     }
     g_message_recv_count++;
 
     return IOTHUBMESSAGE_ACCEPTED;
 }
 
+
 void iothub_ll_c2d_sample(void)
 {
     IOTHUB_CLIENT_TRANSPORT_PROVIDER protocol;
     size_t messages_count = 0;
     IOTHUB_MESSAGE_HANDLE message_handle;
-    size_t messages_sent = 0;
+    //size_t messages_sent = 0;
 
-    float telemetry_temperature;
-    float telemetry_humidity;
-    const char *telemetry_scale = "Celsius";
+    //float telemetry_temperature;
+    //float telemetry_humidity;
+
+    float voltage;
+    float pressure;
+    uint16_t analogValue;
+    adc_init();
+    adc_select_input(0); // Use channel 0 for GPIO 26
+    //const char *telemetry_scale = "Celsius";
     char telemetry_msg_buffer[80];
 
     // Select the Protocol to use with the connection
@@ -217,7 +247,17 @@ void iothub_ll_c2d_sample(void)
         // Setting connection status callback to get indication of connection to iothub
         (void)IoTHubDeviceClient_LL_SetConnectionStatusCallback(device_ll_handle, connection_status_callback, NULL);
 
-        if (IoTHubDeviceClient_LL_SetMessageCallback(device_ll_handle, receive_msg_callback, &messages_count) != IOTHUB_CLIENT_OK)
+        
+        if (
+            (IoTHubDeviceClient_LL_SetOption(device_ll_handle, OPTION_X509_CERT, x509certificate) != IOTHUB_CLIENT_OK) ||
+            (IoTHubDeviceClient_LL_SetOption(device_ll_handle, OPTION_X509_PRIVATE_KEY, x509privatekey) != IOTHUB_CLIENT_OK))
+        
+        {
+            printf("failure to set options for x509, aborting\r\n");
+        }
+
+        
+        else if (IoTHubDeviceClient_LL_SetMessageCallback(device_ll_handle, receive_msg_callback, &messages_count) != IOTHUB_CLIENT_OK)
         {
             (void)printf("ERROR: IoTHubClient_LL_SetMessageCallback..........FAILED!\r\n");
         }
@@ -225,15 +265,32 @@ void iothub_ll_c2d_sample(void)
         {
             do
             {
-                if (messages_sent < MESSAGE_COUNT)
+                //printf("Message send: %zu\n", messages_sent);
+                //printf("received_message_send_message: %d\n", received_message_send_message);
+                if ((messages_sent <= MESSAGE_COUNT) && (received_message_send_message = true))
                 {
+
+                    adc_select_input(0); // Use channel 0 for GPIO 26
+                    analogValue = adc_read();  // Read the raw 12-bit ADC value
+                    printf("Analog Value: %d\n", analogValue);
+                    
+                    voltage = analogValue * (4.5f / (1 << 12));  // Convert to voltage (assuming Vref = 4.5V; from datasheet TIZLA60)
+                    pressure =  voltage * 1.33 - 0.7; //(6Bar/4.5V -0.7V)
+
+                    printf("Voltage: %.2fV\n", voltage);
+                    printf("pressure: %.2fbar\n", pressure);
+
+                    /*
                     // Construct the iothub message
                     telemetry_temperature = 20.0f + ((float)rand() / RAND_MAX) * 15.0f;
                     telemetry_humidity = 60.0f + ((float)rand() / RAND_MAX) * 20.0f;
 
                     sprintf(telemetry_msg_buffer, "{\"temperature\":%.3f,\"humidity\":%.3f,\"scale\":\"%s\"}",
                             telemetry_temperature, telemetry_humidity, telemetry_scale);
+                    */
+                    sprintf(telemetry_msg_buffer, "{\"pressure\":%.3f}", pressure);
                     message_handle = IoTHubMessage_CreateFromString(telemetry_msg_buffer);
+                    
 
                     // Set Message property
                     (void)IoTHubMessage_SetMessageId(message_handle, "MSG_ID");
@@ -244,7 +301,8 @@ void iothub_ll_c2d_sample(void)
                     // Add custom properties to message
                     //(void)IoTHubMessage_SetProperty(message_handle, "property_key", "property_value");
                     // dont use blank, special char. need encoding
-                    (void)IoTHubMessage_SetProperty(message_handle, "display message", "Hello, WizFi360-EVB-Pico!");
+                    //(void)IoTHubMessage_SetProperty(message_handle, "display message", "Hello, WizFi360-EVB-Pico!");
+                    (void)IoTHubMessage_SetProperty(message_handle, "FirmwareID", "00008DC6D7442");
 
                     //(void)printf("Sending message %d to IoTHub\r\n", (int)(messages_sent + 1));
                     //IoTHubDeviceClient_LL_SendEventAsync(device_ll_handle, message_handle, send_confirm_callback, NULL);
@@ -256,9 +314,10 @@ void iothub_ll_c2d_sample(void)
                     IoTHubMessage_Destroy(message_handle);
 
                     messages_sent++;
+                    received_message_send_message = false;
                 }
                 //else if (g_message_count_send_confirmations >= MESSAGE_COUNT)
-                else if ((g_message_count_send_confirmations >= MESSAGE_COUNT) && (g_message_recv_count >= MESSAGE_COUNT))
+                else if ((g_message_count_send_confirmations >= MESSAGE_COUNT) && (g_message_recv_count >= MESSAGE_COUNT_RECEIVED))
                 {
                     // After all messages are all received stop running
                     g_continueRunning = false;
@@ -276,3 +335,5 @@ void iothub_ll_c2d_sample(void)
     // Free all the sdk subsystem
     IoTHub_Deinit();
 }
+
+
