@@ -63,14 +63,16 @@ static const char *x509privatekey = pico_az_x509privatekey;
 
 #define MESSAGE_COUNT 1
 #define MESSAGE_COUNT_RECEIVED 30000
+
+#define DEFAULT_MQTT_KEEPALIVE = 1*60; // 4min default
+#define DEFAULT_CONNACK_TIMEOUT = 30; // 30 seconds
+
 static bool g_continueRunning = true;
 static size_t g_message_count_send_confirmations = 0;
 static size_t g_message_recv_count = 0;
 static bool received_message_send_message = false;
 size_t messages_sent = 0;
 
-size_t retryTimeoutLimitInSeconds = 5;
-IOTHUB_CLIENT_RESULT IoTHubModuleClient_LL_SetRetryPolicy(iotHubClientHandle, IOTHUB_CLIENT_RETRY_INTERVAL, retryTimeoutLimitInSeconds);
 
 
 
@@ -234,6 +236,14 @@ void iothub_ll_c2d_sample(void)
         IoTHubDeviceClient_LL_SetOption(device_ll_handle, OPTION_AUTO_URL_ENCODE_DECODE, &urlEncodeOn);
 #endif
 
+
+        // MQTT remote idle
+        int timevalue = 15;
+        IoTHubDeviceClient_LL_SetOption(device_ll_handle, OPTION_KEEP_ALIVE, &timevalue);
+
+
+
+
 #ifdef SAMPLE_HTTP
         unsigned int timeout = 241000;
         // Because it can poll "after 9 seconds" polls will happen effectively // at ~10 seconds.
@@ -246,6 +256,10 @@ void iothub_ll_c2d_sample(void)
 #endif // SAMPLE_HTTP
         // Setting connection status callback to get indication of connection to iothub
         (void)IoTHubDeviceClient_LL_SetConnectionStatusCallback(device_ll_handle, connection_status_callback, NULL);
+        
+        //Setting reconnection policy
+        size_t retryTimeoutLimitInSeconds = 5;
+        (void) IoTHubDeviceClient_LL_SetRetryPolicy(device_ll_handle, IOTHUB_CLIENT_RETRY_INTERVAL, retryTimeoutLimitInSeconds);
 
         
         if (
@@ -256,11 +270,11 @@ void iothub_ll_c2d_sample(void)
             printf("failure to set options for x509, aborting\r\n");
         }
 
-        
         else if (IoTHubDeviceClient_LL_SetMessageCallback(device_ll_handle, receive_msg_callback, &messages_count) != IOTHUB_CLIENT_OK)
         {
             (void)printf("ERROR: IoTHubClient_LL_SetMessageCallback..........FAILED!\r\n");
         }
+
         else
         {
             do
@@ -325,7 +339,7 @@ void iothub_ll_c2d_sample(void)
 
                 IoTHubDeviceClient_LL_DoWork(device_ll_handle);
 
-                sleep_ms(500); // wait for
+                sleep_ms(100); // wait for
 
             } while (g_continueRunning);
         }
